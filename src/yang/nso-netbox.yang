@@ -1,0 +1,246 @@
+module nso-netbox {
+
+  namespace "http://learning.cisco.com/nso-netbox";
+  prefix nso-netbox;
+  yang-version 1.1;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import tailf-common {
+    prefix tailf;
+  }
+  import tailf-ncs {
+    prefix ncs;
+  }
+
+  description
+    "This will be an NSO package for interacting with NetBox as a source of truth.";
+
+  revision 2021-03-05 {
+    description
+      "Initial package";
+  }
+
+  list netbox-server {
+    description "NetBox server instance.";
+
+    key name;
+    leaf name {
+      tailf:info "Friendly name for NetBox server.";
+      type string;
+    }
+
+    // TODO: Add constraint that at least one of fqdn or address must be set.
+    leaf fqdn {
+      tailf:info "DNS Name for NetBox server"; 
+      type inet:domain-name;
+    }
+
+    leaf address { 
+      tailf:info "IP address for NetBox server";
+      type inet:ipv4-address;
+    }
+
+    leaf url { 
+      tailf:info "Crafted URL for NetBox server";
+      type string; 
+      config false;
+    }
+
+    leaf port { 
+      tailf:info "TCP Port NetBox server listening on";
+      type uint16 {
+        range "0 .. 65535";
+      }
+      default 443;
+    }
+
+    leaf protocol { 
+      tailf:info "HTTP or HTTPS used to connect to NetBox"; 
+      type enumeration { 
+        enum http;
+        enum https;
+      }
+      default https;
+    }
+
+    leaf api-token { 
+      tailf:info "API Token for interacting with NetBox Server.";
+      type string;
+    }
+
+    action verify-status {
+      tailf:actionpoint netbox-verify-status;
+      tailf:info "Perform a status check that the NetBox server is reachable.";
+      output {
+        leaf output { type string; }
+        leaf success { type boolean; }
+      }
+    }    
+
+    uses ncs:service-data;
+    ncs:servicepoint nso-netbox-server-servicepoint;
+
+  }
+
+list netbox-inventory {
+    description "Definition of a NetBox lookup of devices/vms to add to NSO as devices.";
+
+    key name;
+    leaf name {
+      tailf:info "Name for this set of devices.";
+      type string;
+    }
+
+    leaf auth-group {
+      tailf:info "The authgroup to use for this set of devices.";
+      type leafref {
+        path "/ncs:devices/ncs:authgroups/ncs:group/ncs:name";
+      }
+      mandatory true;
+    }
+
+    leaf connection-protocol {
+      tailf:info "The type of connection protocol to connect to the device with.";
+      type enumeration { 
+        enum ssh;
+        enum telnet;
+        enum http;
+        enum https;
+      }
+      default ssh;
+    }
+
+    leaf admin-state {
+      tailf:info "The admin-state to add devices to NSO in.";
+      type enumeration { 
+        enum config-locked;
+        enum locked;
+        enum southbound-locked; 
+        enum unlocked;
+      }
+    }
+
+    leaf update-nso-devices {
+      tailf:info "Whether to add/update the NSO devices based on this query. If false, inventory can be used for verifications.";
+      type boolean; 
+      default false;
+    }
+
+    leaf netbox-server {
+      tailf:info "The NetBox Server to query for this inventory lookup.";
+      type leafref {
+        path "/nso-netbox:netbox-server/name";
+      }
+      mandatory true;
+    }
+
+    leaf-list site {
+      tailf:info "Name of a NetBox Site to limit query to.";
+      type string; 
+    }
+
+    leaf-list tenant {
+      tailf:info "Name of a NetBox Tenant to limit query to.";
+      type string; 
+    }
+
+    list device-type {
+      tailf:info "NetBox Device Types to include in the inventory.";
+      min-elements 1;
+
+      key model; 
+      leaf model {
+        tailf:info "The Model Name for the Device-Type.";
+        type string; 
+      }
+
+      leaf ned {
+        tailf:info "The NED to use for this device type.";
+        type string; 
+        // TODO: This use seems to significantly increase time to load packages.
+        tailf:non-strict-leafref {
+          path "/ncs:packages/ncs:package/ncs:build-info/ncs:package/ncs:name";
+        }
+        mandatory true;
+      }
+    }
+
+    leaf-list device-role {
+      tailf:info "Name of a NetBox Device Role to limit query to.";
+      type string; 
+    }
+
+    uses ncs:service-data;
+    ncs:servicepoint nso-netbox-inventory-servicepoint;
+
+    action verify-inventory {
+      tailf:actionpoint netbox-inventory-verify;
+      tailf:info "Verify that the NetBox Devices for the Inventory are present in NSO as Devices.";
+
+      output {
+        leaf output { type string; }
+        leaf success { type boolean; }
+      }
+    }    
+
+    action build-inventory {
+      tailf:actionpoint netbox-inventory-build;
+      tailf:info "Deploy NSO devices based on the NetBox Devices for the described query.";
+
+      input {
+        leaf commit {
+          tailf:info "Whether to commit/merge the changes to the devices into NSO.";
+          type boolean; 
+          default false;
+        }
+      }
+
+      output {
+        leaf output { type string; }
+        leaf success { type boolean; }
+      }
+    }
+
+    action connect-inventory { 
+      tailf:actionpoint netbox-inventory-connect;
+      tailf:info "Establish connection to each inventory device and optionally sync-from.";
+
+      input {
+        leaf sync-from {
+          tailf:info "Whether to perform a sync-from on devices.";
+          type boolean; 
+          default false;
+        }
+      }
+
+      output {
+        leaf output { type string; }
+        leaf success { type boolean; }
+      }
+
+    }
+
+    action remove-inventory {
+      tailf:actionpoint netbox-inventory-remove;
+      tailf:info "Remove NSO devices based on the NetBox Devices for the described query.";
+
+      input {
+        leaf commit {
+          tailf:info "Whether to commit/merge the changes to the devices into NSO.";
+          type boolean; 
+          default false;
+        }
+      }
+
+      output {
+        leaf output { type string; }
+        leaf success { type boolean; }
+      }
+    }    
+
+
+  }
+
+}

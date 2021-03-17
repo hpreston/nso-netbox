@@ -1,0 +1,22 @@
+<devices xmlns="http://tail-f.com/ns/ncs">
+    <device tags="merge">
+        <name>{$DEVICE_NAME}</name>
+        <address>{$DEVICE_ADDRESS}</address>
+        <description>{$DEVICE_DESCRIPTION}</description>
+        <authgroup>{$AUTH_GROUP}</authgroup>
+        <device-type>
+        <cli>
+            <ned-id xmlns:{$NED_ID}="http://tail-f.com/ns/ned-id/{$NED_ID}">{$NED_ID}:{$NED_ID}</ned-id>
+            <protocol>{$PROTOCOL}</protocol>
+        </cli>
+        </device-type>
+        <state>
+            <admin-state>{$ADMIN_STATE}</admin-state>
+        </state>
+        <source>
+            <context>{$SOURCE_CONTEXT}</context>
+            <when>{$SOURCE_WHEN}</when>
+            <source>{$SOURCE_SOURCE}</source>
+        </source>
+    </device>
+</devices>

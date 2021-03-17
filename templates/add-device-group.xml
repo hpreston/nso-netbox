@@ -1,0 +1,9 @@
+<devices xmlns="http://tail-f.com/ns/ncs">
+  <device-group>
+    <name>{$DEVICE_GROUP_NAME}</name>
+    <location>
+      <name>{$DEVICE_GROUP_LOCATION}</name>
+    </location>
+    <device-name>{$DEVICE_NAME}</device-name>
+  </device-group>
+</devices>

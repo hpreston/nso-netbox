@@ -1,0 +1,17 @@
+<ncs-package xmlns="http://tail-f.com/ns/ncs-packages">
+  <name>nso-netbox</name>
+  <package-version>1.0</package-version>
+  <description>This will be an NSO package for interacting with NetBox as a source of truth. Example use cases include: 
+
+* Generating a device inventory from NetBox devices 
+* IP Address/Prefix Allocation
+* Gathering data for verification checks</description>
+  <ncs-min-version>5.5</ncs-min-version>
+
+  <component>
+    <name>main</name>
+    <application>
+      <python-class-name>nso_netbox.main.Main</python-class-name>
+    </application>
+  </component>
+</ncs-package>
