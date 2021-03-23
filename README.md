@@ -101,7 +101,7 @@ As the "Source of Truth", the devices listed in NetBox (including thier address,
 
 1. You could manually fix these errors, or move to the next section to see how this can be done automatically. 
 
-## Building NSO <devices> from NetBox 
+## Building NSO `<devices>` from NetBox 
 Verifying that the data in NSO matches the Source of Truth is a great first step, but wouldn't it be great to just enforce the configuration from NetBox to NSO?  Of course it would. 
 
 1. Start by updating the `netbox-inventory` configuration to support updating NSO by setting the `update-nso-devices` value to `true`. The default value is `false` to prevent unintended configuration updates. 
