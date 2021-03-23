@@ -349,10 +349,11 @@ In addition to device configurations that are fairly common across all devices, 
 
 There are some common ned-settings included with the package already. These settings are implemented with two parts of the package: 
 
-1. An XML template specific to the device. The templates are named `add-NED-NAME.xml`. 
+1. An XML template specific to the device. The templates are named `add-NED-NAME.xml` and are located in the folder `nso-netbox/templates-ned-settings`.  
+    > *To take advantage of these optional settings, you need to move the templates into the `templates` directory. They are delivered in this way because any `ned-setting` template that is loaded must have the related NEDs loaded into NSO or the package will not successfully load.*
 
     ```
-    ls -l packages/nso-netbox/templates/
+    ls -l packages/nso-netbox/templates-ned-settings/
 
     -rw-rw-r-- 1 hapresto hapresto  533 Mar 22 17:09 add-cisco-fmc.xml
     -rw-rw-r-- 1 hapresto hapresto  640 Mar 22 17:06 add-vmware-vsphere-gen.xml
@@ -374,9 +375,7 @@ There are some common ned-settings included with the package already. These sett
         template.apply("add-vmware-vsphere-gen", vars)
     ```
 
-> ***When loading a package/service, NSO verifies that any NED referenced in the templates is also loaded. If there are templates that use NEDs not loaded, NSO will generate an error.  In this case the simplest thing to do is move the extra templates out of the `templates` directory and reloading the package.***  
-
-In it's current state, `nso-netbox` has the following net-settings implemented. 
+The following optional ned-settings are included with the package.
 
 ### cisco-fmc 
 
