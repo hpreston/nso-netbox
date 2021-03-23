@@ -2,13 +2,26 @@
     <device tags="merge">
         <name>{$DEVICE_NAME}</name>
         <address>{$DEVICE_ADDRESS}</address>
+        <port>{$PORT}</port>
         <description>{$DEVICE_DESCRIPTION}</description>
         <authgroup>{$AUTH_GROUP}</authgroup>
         <device-type>
-        <cli>
-            <ned-id xmlns:{$NED_ID}="http://tail-f.com/ns/ned-id/{$NED_ID}">{$NED_ID}:{$NED_ID}</ned-id>
-            <protocol>{$PROTOCOL}</protocol>
-        </cli>
+
+            <!-- Need IF for cli / generic -->
+            <? if {$NED_TYPE = "cli"} ?>
+            <cli>
+                <ned-id xmlns:{$NED_ID}="http://tail-f.com/ns/ned-id/{$NED_ID}">{$NED_ID}:{$NED_ID}</ned-id>
+                <protocol>{$PROTOCOL}</protocol>
+            </cli>
+            <? else ?>
+            <? if {$NED_TYPE = "generic"} ?>
+            <generic>
+                <ned-id xmlns:{$NED_ID}="http://tail-f.com/ns/ned-id/{$NED_ID}">{$NED_ID}:{$NED_ID}</ned-id>
+            </generic>
+            <? end ?>
+            <? end ?>
+
+
         </device-type>
         <state>
             <admin-state>{$ADMIN_STATE}</admin-state>

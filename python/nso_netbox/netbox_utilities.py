@@ -4,11 +4,12 @@
 
 import pynetbox
 from requests import exceptions
+from _ncs import decrypt
 
 
 def verify_netbox(netbox_server):
     """Verify a NetBox Server is reachable"""
-    nb = pynetbox.api(netbox_server.url, token=netbox_server.api_token)
+    nb = pynetbox.api(netbox_server.url, token=decrypt(netbox_server.api_token))
     try:
         status = nb.status()
     except exceptions.ConnectionError:
@@ -34,7 +35,7 @@ def devicelist_netbox(netbox_inventory, netbox_server, log=False):
     """Retrieve matching devices from NetBox for an inventory"""
 
     try:
-        nb = pynetbox.api(netbox_server.url, token=netbox_server.api_token)
+        nb = pynetbox.api(netbox_server.url, token=decrypt(netbox_server.api_token))
 
         # Build the device query from the provided attributes to the inventory instance
         device_query = {}
@@ -85,6 +86,54 @@ def devicelist_netbox(netbox_inventory, netbox_server, log=False):
         devices = query_netbox(object=nb.dcim.devices, log=log, **device_query)
 
         return {"status": True, "result": devices}
+    except Exception as e:
+        if log:
+            log.error(f"Lookup failed: {e}")
+        return {"status": False, "result": e}
+
+
+def vmlist_netbox(netbox_inventory, netbox_server, log=False):
+    """Retrieve matching Virtual Machines from NetBox for an inventory"""
+
+    try:
+        nb = pynetbox.api(netbox_server.url, token=decrypt(netbox_server.api_token))
+
+        # Build the VM query from the provided attributes to the inventory instance
+        vm_query = {}
+        if netbox_inventory.site:
+            if log:
+                log.info("Looking up NetBox Sites to Filter.")
+            sites = query_netbox(
+                nb.dcim.sites, log, name=[site for site in netbox_inventory.site]
+            )
+            vm_query["site_id"] = [site.id for site in sites]
+
+        if netbox_inventory.tenant:
+            if log:
+                log.info("Looking up NetBox Tenants to Filter.")
+            tenants = query_netbox(
+                object=nb.tenancy.tenants,
+                log=log,
+                name=[tenant for tenant in netbox_inventory.tenant],
+            )
+            vm_query["tenant_id"] = [tenant.id for tenant in tenants]
+
+        if netbox_inventory.vm_role:
+            if log:
+                log.info("Looking up NetBox Virtual Machine Roles to Filter.")
+            vm_roles = query_netbox(
+                object=nb.dcim.device_roles,
+                log=log,
+                name=[vm_role.role for vm_role in netbox_inventory.vm_role],
+                vm_role=True,
+            )
+            vm_query["role_id"] = [vm_role.id for vm_role in vm_roles]
+
+        if log:
+            log.info(f"Looking up NetBox vms for Filter: {vm_query}")
+        vms = query_netbox(object=nb.virtualization.virtual_machines, log=log, **vm_query)
+
+        return {"status": True, "result": vms}
     except Exception as e:
         if log:
             log.error(f"Lookup failed: {e}")

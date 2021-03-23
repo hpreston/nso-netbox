@@ -4,10 +4,11 @@ from ncs.dp import Action
 # from _ncs import decrypt
 import ncs.maapi as maapi
 import _ncs.maapi as _maapi
-from .netbox_utilities import verify_netbox, devicelist_netbox
+from .netbox_utilities import verify_netbox, devicelist_netbox, vmlist_netbox
 from ipaddress import ip_address
 from datetime import datetime
 import json
+from _ncs.error import Error
 
 # TODO: Move to utilities file
 def get_users_groups(trans, uinfo):
@@ -17,6 +18,15 @@ def get_users_groups(trans, uinfo):
     return list(auth.groups)
 
 
+# Constancs and Values for use
+PROTOCOL_PORTS = {
+    "ssh": 22,
+    "telent": 23,
+    "http": 80,
+    "https": 443,
+}
+
+
 class NetboxInventoryAction(Action):
     @Action.action
     def cb_action(self, uinfo, name, kp, action_input, action_output, trans):
@@ -24,7 +34,7 @@ class NetboxInventoryAction(Action):
         service = ncs.maagic.get_node(trans, kp)
         root = ncs.maagic.get_root(trans)
         netbox_server = root.netbox_server[service.netbox_server]
-        # trans.maapi.install_crypto_keys()
+        trans.maapi.install_crypto_keys()
 
         # Find groups user is a member of
         ugroups = get_users_groups(trans, uinfo)
@@ -74,6 +84,7 @@ class NetboxInventoryAction(Action):
         build_messages = []
 
         # See if the inventory service is configured to allow updating NSO Devices
+        # TODO: Consider allowing a "dry-run" of building config even if false
         if not service.update_nso_devices:
             build_messages.append(
                 f"NSO Inventory {service.name} has update-nso-devices set to {service.update_nso_devices}. No NSO <devices> will be created."
@@ -109,19 +120,35 @@ class NetboxInventoryAction(Action):
                     writeable_service = ncs.maagic.get_node(t, service._path)
                     template = ncs.template.Template(writeable_service)
 
-                    query = devicelist_netbox(service, netbox_server, log=self.log)
-                    if query["status"]:
-                        devices = query["result"]
-                    else:
-                        build_messages.append(
-                            f"Unable to query to netbox server {netbox_server.url}"
-                        )
-                        build_messages.append(query["result"])
-                        build_status = False
-                        self.log.error("\n".join(build_messages))
-                        action_output.success = build_status
-                        action_output.output = "\n".join(build_messages)
-                        return
+                    devices = []
+
+                    # Only lookup devices if device_types provided
+                    if service.device_type:
+                        query = devicelist_netbox(service, netbox_server, log=self.log)
+                        if query["status"]:
+                            devices += query["result"]
+                        else:
+                            build_messages.append(
+                                f"Unable to query to netbox server {netbox_server.url}"
+                            )
+                            build_messages.append(query["result"])
+                            build_status = False
+                            self.log.error("\n".join(build_messages))
+                            action_output.success = build_status
+                            action_output.output = "\n".join(build_messages)
+                            return
+
+                    # Lookup VMs if used in inventory
+                    if service.vm_role:
+                        vms_query = vmlist_netbox(service, netbox_server, log=self.log)
+
+                        if vms_query["status"]:
+                            # devices.append(vms_query["result"])
+                            devices += vms_query["result"]
+                        else:
+                            action_output.output = vms_query["result"]
+                            action_output.success = vms_query["status"]
+                            return
 
                     for device in devices:
                         self.log.info(f"Processing device {device.name}")
@@ -164,6 +191,30 @@ class NetboxInventoryAction(Action):
                                 f"NetBox status is {device.status}, setting Admin State to match"
                             )
 
+                        # TODO: Create NSO Device Groups for Types/Models/Tenants that consolidate the groups from any NetBox Inventory Instance
+                        # What NSO Device Groups to add device
+                        nso_groups = [
+                            f"NetBoxInventory {service.name}",
+                            f"NetBoxInventory {service.name} {device.tenant.name}",
+                        ]
+
+                        # Device vs VM differences
+                        if "devices" in device.url:
+                            role = device.device_role
+                            ned = service.device_type[device.device_type.model].ned
+                            nso_groups.append(
+                                f"NetBoxInventory {service.name} {device.device_type.model}"
+                            )
+                        elif "virtual-machines" in device.url:
+                            role = device.role
+                            ned = service.vm_role[device.role.name].ned
+
+                        # Add role based group
+                        nso_groups.append(
+                            f"NetBoxInventory {service.name} {role.name}",
+                        )
+
+                        # Set Metadata on device for source of inventory info
                         source = {
                             "context": {
                                 "web": device.url.replace("/api", ""),
@@ -173,39 +224,72 @@ class NetboxInventoryAction(Action):
                             "source": service._path,
                         }
 
+                        # Populate Variables for creating device
                         vars.add("DEVICE_NAME", device.name)
                         vars.add(
                             "DEVICE_ADDRESS",
                             ip_address(device.primary_ip.address.split("/")[0]),
                         )
-                        vars.add("DEVICE_DESCRIPTION", device.device_role.name)
+                        vars.add("DEVICE_DESCRIPTION", role.name)
                         vars.add("AUTH_GROUP", service.auth_group)
-                        vars.add(
-                            "NED_ID", service.device_type[device.device_type.model].ned
-                        )
+
+                        # Determine if this NED is a "cli" or "generic"
+                        device_package = root.packages.package[ned]
+                        for component in device_package.component:
+                            # Find the component that ties to the NED name
+                            if component.name in ned:
+                                # TODO: There is likely a better way to do this, but component.ned.cli is an ncs.maagic.Container, and can't figure out how to see if "empty" in Python
+                                # Is it a CLI ned?
+                                try:
+                                    component.ned.cli.ned_id
+                                    ned_type = "cli"
+                                except Error:
+                                    pass
+                                # Is it a Generic NED
+                                try:
+                                    component.ned.generic.ned_id
+                                    ned_type = "generic"
+                                except Error:
+                                    pass
+
+                        # Port/Protocol Conversion Logic
+                        if service.connection_protocol.string in PROTOCOL_PORTS.keys():
+                            connection_port = PROTOCOL_PORTS[
+                                service.connection_protocol.string
+                            ]
+                        else:
+                            connection_port = ""
+
+                        # Remaining Variables for template
+                        vars.add("NED_ID", ned)
+                        vars.add("NED_TYPE", ned_type)
                         vars.add("PROTOCOL", service.connection_protocol)
+                        vars.add("PORT", connection_port)
                         vars.add("ADMIN_STATE", device_admin_state)
                         vars.add("SOURCE_CONTEXT", json.dumps(source["context"]))
                         vars.add("SOURCE_SOURCE", source["source"])
                         vars.add("SOURCE_WHEN", source["when"])
+                        vars.add(
+                            "BYPASS_CERT_VERIFY",
+                            service.bypass_certificate_verification,
+                        )
 
                         # Create output message for user
                         build_messages.append(f"- device: {device.name}")
                         build_messages.append(
                             f"  address: {ip_address(device.primary_ip.address.split('/')[0])}"
                         )
-                        build_messages.append(
-                            f"  description: {device.device_role.name}"
-                        )
+                        build_messages.append(f"  port: {connection_port}")
+                        build_messages.append(f"  description: {role.name}")
                         build_messages.append(f"  auth-group: {service.auth_group}")
+
                         build_messages.append("  device-type: ")
-                        build_messages.append("    cli:")
-                        build_messages.append(
-                            f"      ned-id: {service.device_type[device.device_type.model].ned}"
-                        )
+                        build_messages.append(f"    {ned_type}:")
+                        build_messages.append(f"      ned-id: {ned}")
                         build_messages.append(
                             f"      protocol: {service.connection_protocol}"
                         )
+
                         build_messages.append(f"    state: {device_admin_state}")
                         build_messages.append("    source:")
                         build_messages.append(
@@ -214,15 +298,7 @@ class NetboxInventoryAction(Action):
                         build_messages.append(f"      when: {source['when']}")
                         build_messages.append(f"      source: {source['source']}")
 
-                        # TODO: Create NSO Device Groups for Types/Models/Tenants that consolidate the groups from any NetBox Inventory Instance
-                        # What NSO Device Groups to add device
-                        nso_groups = [
-                            f"NetBoxInventory {service.name}",
-                            f"NetBoxInventory {service.name} {device.device_type.model}",
-                            f"NetBoxInventory {service.name} {device.device_role.name}",
-                            f"NetBoxInventory {service.name} {device.tenant.name}",
-                        ]
-
+                        # Add devices to NSO Device-Groups
                         self.log.info(f"Device will be added to groups: {nso_groups}")
                         group_vars = ncs.template.Variables()
                         group_vars.add("DEVICE_NAME", device.name)
@@ -230,7 +306,7 @@ class NetboxInventoryAction(Action):
                         build_messages.append("  device-groups: ")
                         for group in nso_groups:
                             group_vars.add("DEVICE_GROUP_NAME", group)
-                            build_messages.append(f"  - {group}:")
+                            build_messages.append(f"  - {group}")
 
                             self.log.info(
                                 f"Device {device.name} Group {group}: {group_vars}"
@@ -244,10 +320,22 @@ class NetboxInventoryAction(Action):
 
                         self.log.info(f"Device {device.name}: {vars}")
 
+                        # TODO: Look at using NSO "dry-run" feature
                         if action_input.commit:
                             self.log.info("Applying template to add device to NSO.")
                             template.apply("add-device", vars)
-                            pass
+
+                            # Device/NED specific configuratons
+                            if "cisco-fmc" in ned:
+                                self.log.info(
+                                    f"Device {device.name} uses ned {ned}. Applying Cisco FMC specific configurations."
+                                )
+                                template.apply("add-cisco-fmc", vars)
+                            elif "vmware-vsphere" in ned:
+                                self.log.info(
+                                    f"Device {device.name} uses ned {ned}. Applying VMware specific configurations."
+                                )
+                                template.apply("add-vmware-vsphere-gen", vars)
                         else:
                             build_messages.append(
                                 f"\n\n# Action input commit: {action_input.commit}. Devices will NOT be added to NSO."
@@ -290,20 +378,34 @@ class NetboxInventoryAction(Action):
             connect_messages.append(netbox_status["message"])
             connect_status = False
 
-        # Lookup devices for inventory from NetBox
-        query = devicelist_netbox(service, netbox_server, log=self.log)
-        if query["status"]:
-            devices = query["result"]
-        else:
-            build_messages.append(
-                f"Unable to query to netbox server {netbox_server.url}"
-            )
-            build_messages.append(query["result"])
-            build_status = False
-            self.log.error("\n".join(build_messages))
-            action_output.success = build_status
-            action_output.output = "\n".join(build_messages)
-            return
+        devices = []
+
+        # Only lookup devices if device_types provided
+        if service.device_type:
+            query = devicelist_netbox(service, netbox_server, log=self.log)
+            if query["status"]:
+                devices = query["result"]
+            else:
+                connect_messages.append(
+                    f"Unable to query to netbox server {netbox_server.url}"
+                )
+                connect_messages.append(query["result"])
+                connect_status = False
+                self.log.error("\n".join(connect_messages))
+                action_output.success = connect_status
+                action_output.output = "\n".join(connect_messages)
+                return
+
+        # Lookup VMs if used in inventory
+        if service.vm_role:
+            vms_query = vmlist_netbox(service, netbox_server, log=self.log)
+
+            if vms_query["status"]:
+                devices += vms_query["result"]
+            else:
+                action_output.output = vms_query["result"]
+                action_output.success = vms_query["status"]
+                return
 
         for device in devices:
             self.log.info(f"Processing device {device.name}")
@@ -312,12 +414,15 @@ class NetboxInventoryAction(Action):
 
             connect_messages.append(f"Connecting to device {device.name}")
 
-            connect_messages.append("  - Fetching SSH Host-Keys")
-            ssh_fetch = root.devices.device[device.name].ssh.fetch_host_keys()
-            connect_messages.append(f"    result: {ssh_fetch.result} {ssh_fetch.info}")
-            self.log.info(
-                f"{device.name} fetch ssh host key result: {ssh_fetch.result} {ssh_fetch.info}"
-            )
+            if service.connection_protocol.string == "ssh":
+                connect_messages.append("  - Fetching SSH Host-Keys")
+                ssh_fetch = root.devices.device[device.name].ssh.fetch_host_keys()
+                connect_messages.append(
+                    f"    result: {ssh_fetch.result} {ssh_fetch.info}"
+                )
+                self.log.info(
+                    f"{device.name} fetch ssh host key result: {ssh_fetch.result} {ssh_fetch.info}"
+                )
 
             connect_messages.append("  - Testing Connecting to Device")
             connect = root.devices.device[device.name].connect()
@@ -326,7 +431,7 @@ class NetboxInventoryAction(Action):
                 f"{device.name} connect result: {connect.result} {connect.info}"
             )
 
-            if action_input.sync_from:
+            if action_input.sync_from and connect.result:
                 connect_messages.append("  - Performing sync-from")
                 syncfrom = root.devices.device[device.name].sync_from()
                 connect_messages.append(
@@ -349,17 +454,35 @@ class NetboxInventoryAction(Action):
             action_output.output = netbox_status["message"]
             return
 
-        query = devicelist_netbox(service, netbox_server, log=self.log)
-        if query["status"]:
-            devices = query["result"]
-        else:
-            action_output.output = query["result"]
-            action_output.success = query["status"]
-            return
+        devices = []
+
+        # Only lookup devices if device_types provided
+        if service.device_type:
+            query = devicelist_netbox(service, netbox_server, log=self.log)
+
+            if query["status"]:
+                devices += query["result"]
+            else:
+                action_output.output = query["result"]
+                action_output.success = query["status"]
+                return
+
+        # Lookup VMs if used in inventory
+        if service.vm_role:
+            vms_query = vmlist_netbox(service, netbox_server, log=self.log)
+
+            if vms_query["status"]:
+                devices += vms_query["result"]
+            else:
+                action_output.output = vms_query["result"]
+                action_output.success = vms_query["status"]
+                return
 
         # Look for each NetBox device in the inventory
         verify_status = True
         verify_messages = []
+
+        # if service.device_type:
         for device in devices:
             self.log.info(f"Testing device {device.name}")
             # Does the device exist
@@ -423,29 +546,60 @@ class NetboxInventoryAction(Action):
                 )
                 verify_status = False
 
+            # Device vs VM differences
+            if "devices" in device.url:
+                role = device.device_role
+                ned = service.device_type[device.device_type.model].ned
+            elif "virtual-machines" in device.url:
+                role = device.role
+                ned = service.vm_role[device.role.name].ned
+
             # Verify Description of Device
-            if device.device_role.name != nso_device.description:
+            if role.name != nso_device.description:
                 verify_messages.append(
-                    f"Device {device.name} has a NetBox Role of {device.device_role.name}, which doesn't match NSO description of {nso_device.description}"
+                    f"Device {device.name} has a NetBox Role of {role.name}, which doesn't match NSO description of {nso_device.description}"
                 )
                 verify_status = False
 
+            # Determine if this NED is a "cli" or "generic"
+            device_package = root.packages.package[ned]
+            for component in device_package.component:
+                # Find the component that ties to the NED name
+                if component.name in ned:
+                    # TODO: There is likely a better way to do this, but component.ned.cli is an ncs.maagic.Container, and can't figure out how to see if "empty" in Python
+                    # Is it a CLI ned?
+                    try:
+                        component.ned.cli.ned_id
+                        ned_type = "cli"
+                    except Error:
+                        pass
+                    # Is it a Generic NED
+                    try:
+                        component.ned.generic.ned_id
+                        ned_type = "generic"
+                    except Error:
+                        pass
+
             # Verify NED_ID
-            if (
-                service.device_type[device.device_type.model].ned
-                != nso_device.device_type.cli.ned_id.split(":")[1]
-            ):
+            if ned != nso_device.device_type[ned_type].ned_id.split(":")[1]:
                 verify_messages.append(
                     f"Device {device.name} has a NetBox Device Type of {device.device_type.model} which should use NED {service.device_type[device.device_type.model].ned}, but is configured for NSO NED {nso_device.device_type.cli.ned_id.split(':')[1]}"
                 )
                 verify_status = False
 
             # Verify Protocol
-            if str(service.connection_protocol) != str(
+            if ned_type == "cli" and str(service.connection_protocol) != str(
                 nso_device.device_type.cli.protocol
             ):
                 verify_messages.append(
                     f"Device {device.name} should use a connection protocol of {service.connection_protocol}, but is configured for {nso_device.device_type.cli.protocol}"
+                )
+                verify_status = False
+
+            # Verify Port
+            if nso_device.port != PROTOCOL_PORTS[service.connection_protocol.string]:
+                verify_messages.append(
+                    f"Device {device.name} should use a port of {PROTOCOL_PORTS[service.connection_protocol.string]}, but is configured for {nso_device.port}"
                 )
                 verify_status = False
 

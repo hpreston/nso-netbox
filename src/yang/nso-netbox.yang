@@ -22,6 +22,11 @@ module nso-netbox {
       "Initial package";
   }
 
+  revision 2021-03-23 {
+    description
+      "Add support for NetBox VM-Roles in addition to Device Types.";
+  }
+
   list netbox-server {
     description "NetBox server instance.";
 
@@ -31,16 +36,22 @@ module nso-netbox {
       type string;
     }
 
-    // TODO: Add constraint that at least one of fqdn or address must be set.
-    leaf fqdn {
-      tailf:info "DNS Name for NetBox server"; 
-      type inet:domain-name;
+    choice server-address {
+      case dns {
+        leaf fqdn {
+          tailf:info "DNS Name for NetBox server"; 
+          type inet:domain-name;
+        }
+      }
+
+      case ip {
+        leaf address { 
+          tailf:info "IP address for NetBox server";
+          type inet:ipv4-address;
+        }
+      }
     }
 
-    leaf address { 
-      tailf:info "IP address for NetBox server";
-      type inet:ipv4-address;
-    }
 
     leaf url { 
       tailf:info "Crafted URL for NetBox server";
@@ -67,7 +78,7 @@ module nso-netbox {
 
     leaf api-token { 
       tailf:info "API Token for interacting with NetBox Server.";
-      type string;
+      type tailf:aes-cfb-128-encrypted-string;
     }
 
     action verify-status {
@@ -112,6 +123,12 @@ list netbox-inventory {
       default ssh;
     }
 
+    leaf bypass-certificate-verification { 
+      tailf:info "Whether to verify keys for SSL type connections. A setting of 'true' is equivalent to 'verify = False'"; 
+      type boolean; 
+      default true; 
+    }
+
     leaf admin-state {
       tailf:info "The admin-state to add devices to NSO in.";
       type enumeration { 
@@ -148,7 +165,6 @@ list netbox-inventory {
 
     list device-type {
       tailf:info "NetBox Device Types to include in the inventory.";
-      min-elements 1;
 
       key model; 
       leaf model {
@@ -159,7 +175,6 @@ list netbox-inventory {
       leaf ned {
         tailf:info "The NED to use for this device type.";
         type string; 
-        // TODO: This use seems to significantly increase time to load packages.
         tailf:non-strict-leafref {
           path "/ncs:packages/ncs:package/ncs:build-info/ncs:package/ncs:name";
         }
@@ -170,6 +185,30 @@ list netbox-inventory {
     leaf-list device-role {
       tailf:info "Name of a NetBox Device Role to limit query to.";
       type string; 
+    }
+
+    list vm-role { 
+      tailf:info "NetBox VM Roles to include in the inventory. Explicit vm-role -> NED definitions required."; 
+      
+      key role; 
+      leaf role { 
+        tailf:info "The name of the VM Role to include."; 
+        type string; 
+      }
+
+      leaf ned {
+        tailf:info "The NED to use for this VM Role.";
+        type string; 
+        tailf:non-strict-leafref {
+          path "/ncs:packages/ncs:package/ncs:build-info/ncs:package/ncs:name";
+        }
+        mandatory true;
+      }
+    }
+
+    // Constraint - each inventory must have at least 1 device-type or vm-role defined 
+    must "count(device-type) + count(vm-role) >= 1" {
+      error-message "Every netbox-inventory must have at least 1 device-type or vm-role defined.";
     }
 
     uses ncs:service-data;

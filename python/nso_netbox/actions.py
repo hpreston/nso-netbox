@@ -11,7 +11,7 @@ class NetboxServerAction(Action):
         self.log.info("NetboxAction: ", name)
         service = ncs.maagic.get_node(trans, kp)
         root = ncs.maagic.get_root(trans)
-        # trans.maapi.install_crypto_keys()
+        trans.maapi.install_crypto_keys()
 
         if name == "verify-status":
             self.verify_status(service, root, action_output)

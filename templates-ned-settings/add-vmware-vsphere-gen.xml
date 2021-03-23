@@ -1,0 +1,19 @@
+<devices xmlns="http://tail-f.com/ns/ncs">
+  <device>
+    <name>{$DEVICE_NAME}</name>
+    <!-- NED Specific settings -->
+    <!-- If you are NOT using the vmware-vsphere-gen NED and devices, comment out this entire file to load the package -->
+
+      <read-timeout>60</read-timeout>
+      <write-timeout>60</write-timeout>
+
+      <ned-settings>
+        <vmware-vsphere xmlns="http://tail-f.com/ned/vmware-vsphere-meta">
+          <device-flavor>portgroup-cfg</device-flavor>
+          <connection>
+            <ssl-version>TLSv1.2</ssl-version>
+          </connection>
+        </vmware-vsphere>
+      </ned-settings>
+  </device>
+</devices>

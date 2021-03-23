@@ -1,0 +1,16 @@
+<devices xmlns="http://tail-f.com/ns/ncs">
+  <device>
+    <name>{$DEVICE_NAME}</name>
+    <!-- NED Specific settings -->
+    <!-- If you are NOT using the cisco-fmc NED and devices, comment out this entire file to load the package -->
+    <ned-settings>
+      <cisco-fmc xmlns="http://tailf.com/ned/cisco-fmc/meta">
+        <cisco-fmc-connection>
+          <ssl>
+            <accept-any>{$BYPASS_CERT_VERIFY}</accept-any>
+          </ssl>
+        </cisco-fmc-connection>
+      </cisco-fmc>
+    </ned-settings>
+  </device>
+</devices>
