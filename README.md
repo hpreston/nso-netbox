@@ -6,6 +6,69 @@ This will be an NSO package for interacting with NetBox as a source of truth. Ex
 * IP Address/Prefix Allocation
 * Gathering data for verification checks 
 
+## Installing the nso-netbox package 
+> These instructions assume you already have installed NSO and know the basics of setting up an NSO local instance.  For a detailed walkthrough of these steps, see the documentation [Getting and Installing NSO](https://developer.cisco.com/docs/nso/#!getting-and-installing-nso/getting-nso) on DevNet.
+
+Installing the `nso-netbox` package is straightforward and follows the same process as most NSO packages.  Follow these steps to get started with a local-instance of NSO. 
+
+1. Clone down this repository to your NSO server.
+
+    ```
+    https://gitlab.com/nso-developer/nso-netbox.git
+    cd nso-netbox
+    ```
+
+1. Now you need to compile the YANG models for the package for your NSO version.  
+
+    ```
+    cd src 
+    make 
+    cd ..
+    ```
+
+1. `nso-netbox` is a Python package and leverages the [`pynetbox`](https://pypi.org/project/pynetbox/) library for interacting with NetBox.  While any version of the library may work, it is recommended to install the same version that the package was developed and tested with.  The file `src\requirements.txt` is included with the package and has the version specified. 
+
+    ```
+    python3 -m pip install -r src/requirements.txt
+    ```
+
+    > Note: Current versions of Cisco NSO will default to using `python3` to startup Python packages.  If you are using a custom Python interpreter or Virtual Environment for your packages, just be sure to install the requirements into the appropriate place. 
+
+1. Now you're ready to setup a new NSO instance using this package.  
+    * The example command makes the following assumptions. Adjust as necessary for your environment.
+        * You have cloned the `nso-netbox` repository to your home directory
+        * Your local-installation of NSO is located at `~/nso` 
+    * The example command also shows adding packages for `cisco-nx-cli` and `cisco-ios-cli`.  An NSO installation includes these demo NED packages. More details can be found at [Getting and Installing NSO](https://developer.cisco.com/docs/nso/#!getting-and-installing-nso/getting-nso)
+
+    ```
+    ncs-setup --package ~/nso-netbox \
+    --package ~/nso/packages/neds/cisco-nx-cli-3.0 
+    --package ~/nso/packages/neds/cisco-ios-cli-3.8 
+    --dest ~/nso-instance
+    ```
+
+1. Now startup the new NSO instance 
+
+    ```
+    cd ~/nso-instance 
+    ncs
+    ```
+
+1. After NSO starts, you can verify the package started correctly from `ncs_cli` 
+
+    ```
+    ncs_cli -u admin -C
+    show packages package oper-status
+
+    # Example Output
+    packages package cisco-ios-cli-6.67
+    oper-status up
+    packages package cisco-nx-cli-5.20
+    oper-status up
+    packages package nso-netbox
+    oper-status up
+    ```
+
 ## Using the nso-netbox package
 This short walkthrough will show how the nso-netbox package can be used to integrate NetBox with Cisco NSO. This walkthrough is intended to highlight the use of the package, **NOT** how the package was built. 
 
