@@ -6,7 +6,7 @@
 * Generating a device inventory from NetBox devices 
 * IP Address/Prefix Allocation
 * Gathering data for verification checks</description>
-  <ncs-min-version>5.5</ncs-min-version>
+  <ncs-min-version>5.4</ncs-min-version>
 
   <component>
     <name>main</name>
