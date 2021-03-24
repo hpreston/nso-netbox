@@ -6,6 +6,16 @@ This will be an NSO package for interacting with NetBox as a source of truth. Ex
 * IP Address/Prefix Allocation
 * Gathering data for verification checks 
 
+## NSO and NetBox Version Info
+This package has been tested with the following versions of Cisco NSO and NetBox. It may work with other versions of the products, but be prepared for potential troubleshooting.  
+
+* Cisco NSO 
+    * 5.5
+    * 5.4.1 
+* NetBox 
+    * v2.10.4
+    * v2.8.4
+
 ## Installing the nso-netbox package 
 > These instructions assume you already have installed NSO and know the basics of setting up an NSO local instance.  For a detailed walkthrough of these steps, see the documentation [Getting and Installing NSO](https://developer.cisco.com/docs/nso/#!getting-and-installing-nso/getting-nso) on DevNet.
 
