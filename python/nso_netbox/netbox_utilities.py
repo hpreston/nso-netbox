@@ -5,6 +5,7 @@
 import pynetbox
 from requests import exceptions
 from _ncs import decrypt
+from pynetbox.core.query import RequestError
 
 
 def verify_netbox(netbox_server):
@@ -12,6 +13,13 @@ def verify_netbox(netbox_server):
     nb = pynetbox.api(netbox_server.url, token=decrypt(netbox_server.api_token))
     try:
         status = nb.status()
+    except RequestError as e: 
+        # Older versions of NetBox don't have the status api, try to retrieve devices
+        devices = nb.dcim.devices.all()
+        return {
+            "status": True, 
+            "message": f"Successfully connected to NetBox to query devices."
+        }
     except exceptions.ConnectionError:
         return {
             "status": False,

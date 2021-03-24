@@ -9,6 +9,7 @@ from ipaddress import ip_address
 from datetime import datetime
 import json
 from _ncs.error import Error
+import pynetbox
 
 # TODO: Move to utilities file
 def get_users_groups(trans, uinfo):
@@ -21,7 +22,7 @@ def get_users_groups(trans, uinfo):
 # Constancs and Values for use
 PROTOCOL_PORTS = {
     "ssh": 22,
-    "telent": 23,
+    "telnet": 23,
     "http": 80,
     "https": 443,
 }
@@ -152,6 +153,13 @@ class NetboxInventoryAction(Action):
 
                     for device in devices:
                         self.log.info(f"Processing device {device.name}")
+
+                        # Verify mandatory attributes for devices are available
+                        if not device.primary_ip: 
+                            build_messages.append(f"# Device {device.name} is missing the mandatory field primary_ip. Skipping device.")
+                            continue
+
+
                         # NetBox Status Field will affect results
                         #   Active          > Add / unlocked
                         #   Staged          > Add / unlocked
@@ -195,17 +203,16 @@ class NetboxInventoryAction(Action):
                         # What NSO Device Groups to add device
                         nso_groups = [
                             f"NetBoxInventory {service.name}",
-                            f"NetBoxInventory {service.name} {device.tenant.name}",
                         ]
 
                         # Device vs VM differences
-                        if "devices" in device.url:
+                        if isinstance(device, pynetbox.models.dcim.Devices): 
                             role = device.device_role
                             ned = service.device_type[device.device_type.model].ned
                             nso_groups.append(
                                 f"NetBoxInventory {service.name} {device.device_type.model}"
                             )
-                        elif "virtual-machines" in device.url:
+                        elif isinstance(device, pynetbox.models.virtualization.VirtualMachines): 
                             role = device.role
                             ned = service.vm_role[device.role.name].ned
 
@@ -214,15 +221,26 @@ class NetboxInventoryAction(Action):
                             f"NetBoxInventory {service.name} {role.name}",
                         )
 
+                        # Add role based on tenant 
+                        if device.tenant: 
+                            nso_groups.append(
+                                f"NetBoxInventory {service.name} {device.tenant.name}"                                
+                            )
+
                         # Set Metadata on device for source of inventory info
                         source = {
-                            "context": {
-                                "web": device.url.replace("/api", ""),
-                                "api": device.url,
-                            },
+                            "context": None,
                             "when": datetime.utcnow().isoformat(timespec="seconds"),
                             "source": service._path,
                         }
+
+                        # If a URL address for device returned, apply it
+                        # TODO: Add logic to construct address for older NetBox servers
+                        if device.url: 
+                            source["context"] = {
+                                "web": device.url.replace("/api", ""),
+                                "api": device.url,
+                            }
 
                         # Populate Variables for creating device
                         vars.add("DEVICE_NAME", device.name)
@@ -237,7 +255,8 @@ class NetboxInventoryAction(Action):
                         device_package = root.packages.package[ned]
                         for component in device_package.component:
                             # Find the component that ties to the NED name
-                            if component.name in ned:
+                            # Note: The cisco-iosxr ned uses cisco-ios-xr as the component name. Pulling out "-"'s for this test
+                            if component.name.replace("-", "") in ned.replace("-", ""):
                                 # TODO: There is likely a better way to do this, but component.ned.cli is an ncs.maagic.Container, and can't figure out how to see if "empty" in Python
                                 # Is it a CLI ned?
                                 try:
@@ -410,6 +429,12 @@ class NetboxInventoryAction(Action):
         for device in devices:
             self.log.info(f"Processing device {device.name}")
 
+            # Verify mandatory attributes for devices are available
+            if not device.primary_ip: 
+                connect_messages.append(f"# Device {device.name} is missing the mandatory field primary_ip. Skipping device.")
+                continue
+
+
             # TODO: Verify device in NSO first
 
             connect_messages.append(f"Connecting to device {device.name}")
@@ -485,6 +510,12 @@ class NetboxInventoryAction(Action):
         # if service.device_type:
         for device in devices:
             self.log.info(f"Testing device {device.name}")
+
+            # Verify mandatory attributes for devices are available
+            if not device.primary_ip: 
+                verify_messages.append(f"# Device {device.name} is missing the mandatory field primary_ip. Skipping device.")
+                continue
+
             # Does the device exist
             try:
                 nso_device = root.devices.device[device.name]
@@ -547,10 +578,10 @@ class NetboxInventoryAction(Action):
                 verify_status = False
 
             # Device vs VM differences
-            if "devices" in device.url:
+            if isinstance(device, pynetbox.models.dcim.Devices): 
                 role = device.device_role
                 ned = service.device_type[device.device_type.model].ned
-            elif "virtual-machines" in device.url:
+            elif isinstance(device, pynetbox.models.virtualization.VirtualMachines): 
                 role = device.role
                 ned = service.vm_role[device.role.name].ned
 
@@ -565,7 +596,7 @@ class NetboxInventoryAction(Action):
             device_package = root.packages.package[ned]
             for component in device_package.component:
                 # Find the component that ties to the NED name
-                if component.name in ned:
+                if component.name.replace("-", "") in ned.replace("-", ""):
                     # TODO: There is likely a better way to do this, but component.ned.cli is an ncs.maagic.Container, and can't figure out how to see if "empty" in Python
                     # Is it a CLI ned?
                     try:
