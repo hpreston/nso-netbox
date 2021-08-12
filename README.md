@@ -1,4 +1,4 @@
-# nso-netbox
+# NSO package for interacting with NetBox
 
 This will be an NSO package for interacting with NetBox as a source of truth. Example use cases include: 
 
