@@ -57,6 +57,7 @@ module nso-netbox {
       tailf:info "Crafted URL for NetBox server";
       type string; 
       config false;
+      tailf:cdb-oper { tailf:persistent true; }
     }
 
     leaf port { 
